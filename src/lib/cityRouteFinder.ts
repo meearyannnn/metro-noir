@@ -109,9 +109,17 @@ export function createCityRouteFinder(metroSystem: MetroSystem, lineColors: Reco
     
     if (!fromInfo || !toInfo) return null;
 
-    // BFS with priority for fewer interchanges
-    const queue: { node: string; path: GraphNode[]; interchanges: number }[] = [];
-    const visited = new Map<string, number>(); // Track minimum interchanges to reach each node
+    // Dijkstra-like approach with priority queue simulation
+    // Key: "station|lineId", Value: { interchanges, pathLength }
+    const best = new Map<string, { interchanges: number; pathLength: number }>();
+    
+    interface QueueItem {
+      node: string;
+      path: GraphNode[];
+      interchanges: number;
+    }
+    
+    const queue: QueueItem[] = [];
     
     // Start from all lines at the source station
     fromInfo.lines.forEach(line => {
@@ -121,20 +129,36 @@ export function createCityRouteFinder(metroSystem: MetroSystem, lineColors: Reco
         path: [{ station: from, line: line.lineName, lineId: line.lineId }],
         interchanges: 0
       });
-      visited.set(startKey, 0);
+      best.set(startKey, { interchanges: 0, pathLength: 1 });
     });
 
     let bestResult: { path: GraphNode[]; interchanges: number } | null = null;
 
     while (queue.length > 0) {
-      // Sort by interchanges first, then by path length
-      queue.sort((a, b) => {
-        if (a.interchanges !== b.interchanges) return a.interchanges - b.interchanges;
-        return a.path.length - b.path.length;
-      });
-
-      const current = queue.shift()!;
+      // Find the best item in queue (minimum interchanges, then minimum path length)
+      let bestIdx = 0;
+      for (let i = 1; i < queue.length; i++) {
+        const a = queue[bestIdx];
+        const b = queue[i];
+        if (b.interchanges < a.interchanges || 
+            (b.interchanges === a.interchanges && b.path.length < a.path.length)) {
+          bestIdx = i;
+        }
+      }
+      
+      const current = queue[bestIdx];
+      queue.splice(bestIdx, 1);
+      
       const [currentStation, currentLineId] = current.node.split("|");
+
+      // Skip if we already found a better path to this node
+      const currentBest = best.get(current.node);
+      if (currentBest) {
+        if (current.interchanges > currentBest.interchanges ||
+            (current.interchanges === currentBest.interchanges && current.path.length > currentBest.pathLength)) {
+          continue;
+        }
+      }
 
       // Check if we reached destination
       if (currentStation === to) {
@@ -146,8 +170,9 @@ export function createCityRouteFinder(metroSystem: MetroSystem, lineColors: Reco
       }
 
       // Early termination if we have a result and current path is worse
-      if (bestResult && current.interchanges > bestResult.interchanges) {
-        continue;
+      if (bestResult && current.interchanges >= bestResult.interchanges) {
+        if (current.interchanges > bestResult.interchanges) continue;
+        if (current.path.length >= bestResult.path.length) continue;
       }
 
       const neighbors = graph.get(current.node) || [];
@@ -156,22 +181,23 @@ export function createCityRouteFinder(metroSystem: MetroSystem, lineColors: Reco
         const [neighborStation, neighborLineId] = edge.neighbor.split("|");
         const isInterchange = neighborLineId !== currentLineId && neighborStation === currentStation;
         const newInterchanges = current.interchanges + (isInterchange ? 1 : 0);
+        const newPathLength = current.path.length + 1;
 
-        const visitedInterchanges = visited.get(edge.neighbor);
-        if (visitedInterchanges !== undefined && visitedInterchanges < newInterchanges) {
-          continue;
+        const neighborBest = best.get(edge.neighbor);
+        if (neighborBest) {
+          // Skip if we already have a better or equal path
+          if (newInterchanges > neighborBest.interchanges) continue;
+          if (newInterchanges === neighborBest.interchanges && newPathLength >= neighborBest.pathLength) continue;
         }
 
-        visited.set(edge.neighbor, newInterchanges);
+        best.set(edge.neighbor, { interchanges: newInterchanges, pathLength: newPathLength });
 
         const newPath = [...current.path];
-        if (neighborStation !== currentStation || isInterchange) {
-          newPath.push({
-            station: neighborStation,
-            line: edge.line,
-            lineId: neighborLineId
-          });
-        }
+        newPath.push({
+          station: neighborStation,
+          line: edge.line,
+          lineId: neighborLineId
+        });
 
         queue.push({
           node: edge.neighbor,
