@@ -1,5 +1,6 @@
 import Header from "@/components/Header";
 import Hero from "@/components/Hero";
+import CitySelector from "@/components/CitySelector";
 import MetroLines from "@/components/MetroLines";
 import PopularStations from "@/components/PopularStations";
 import FareCalculator from "@/components/FareCalculator";
@@ -11,6 +12,7 @@ const Index = () => {
       <Header />
       <main>
         <Hero />
+        <CitySelector />
         <MetroLines />
         <PopularStations />
         <FareCalculator />
